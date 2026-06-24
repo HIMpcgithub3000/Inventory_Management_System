@@ -62,7 +62,7 @@ jobs:
 
       # Security scan (block on CRITICAL). Non-fatal if Trivy DB is unavailable.
       - name: Trivy scan backend image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: ioms-backend:ci
           severity: CRITICAL
