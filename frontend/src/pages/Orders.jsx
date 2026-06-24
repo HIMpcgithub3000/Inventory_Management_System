@@ -1,287 +1,207 @@
-import { useMemo, useState } from "react";
-import {
-  useOrders,
-  useOrder,
-  useCreateOrder,
-  useDeleteOrder,
-  useCustomers,
-  useProducts,
-} from "../api/hooks";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Plus, ShoppingCart, XCircle, CheckCircle2, Package, Ban, Clock } from "lucide-react";
+import { useOrders, useDeleteOrder } from "../api/hooks";
 import { errorMessage } from "../api/client";
 import { useToast } from "../components/Toast";
-import Modal from "../components/Modal";
-import { EmptyState, ErrorState, Field, Spinner } from "../components/ui";
-import { money, shortId, dateTime } from "../lib/format";
+import { ConfirmDialog } from "../components/Modal";
+import Drawer from "../components/Drawer";
+import DataTable from "../components/DataTable";
+import { SearchInput, Segmented } from "../components/Controls";
+import { useLookups } from "../lib/lookups";
+import { Avatar, OrderStatusBadge, EmptyState } from "../components/ui";
+import { money, dateTime, dateShort, shortId, num } from "../lib/format";
 
-function OrderForm({ onClose }) {
-  const toast = useToast();
-  const customers = useCustomers();
-  const products = useProducts();
-  const createM = useCreateOrder();
-
-  const [customerId, setCustomerId] = useState("");
-  const [lines, setLines] = useState([{ product_id: "", quantity: 1 }]);
-  const [err, setErr] = useState("");
-
-  const productById = useMemo(
-    () => Object.fromEntries((products.data || []).map((p) => [p.id, p])),
-    [products.data]
-  );
-
-  const total = lines.reduce((sum, l) => {
-    const p = productById[l.product_id];
-    return p ? sum + Number(p.price) * Number(l.quantity || 0) : sum;
-  }, 0);
-
-  const setLine = (i, patch) => setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
-  const addLine = () => setLines((ls) => [...ls, { product_id: "", quantity: 1 }]);
-  const removeLine = (i) => setLines((ls) => ls.filter((_, idx) => idx !== i));
-
-  const submit = async (ev) => {
-    ev.preventDefault();
-    setErr("");
-    if (!customerId) return setErr("Select a customer");
-    const valid = lines.filter((l) => l.product_id && Number(l.quantity) > 0);
-    if (valid.length === 0) return setErr("Add at least one product line");
-    const ids = valid.map((l) => l.product_id);
-    if (new Set(ids).size !== ids.length) return setErr("Each product may appear only once");
-    // client-side stock pre-check (server is the source of truth)
-    for (const l of valid) {
-      const p = productById[l.product_id];
-      if (p && Number(l.quantity) > p.quantity_in_stock)
-        return setErr(`Only ${p.quantity_in_stock} of "${p.name}" in stock`);
-    }
-    try {
-      await createM.mutateAsync({
-        customer_id: customerId,
-        lines: valid.map((l) => ({ product_id: l.product_id, quantity: Number(l.quantity) })),
-      });
-      toast.success("Order placed");
-      onClose();
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
-
-  if (customers.isLoading || products.isLoading) return <Spinner />;
+function Timeline({ order }) {
+  const steps = [
+    { label: "Order placed", at: order.created_at, icon: CheckCircle2, tone: "text-stock-600 bg-stock-50", done: true },
+    { label: "Stock reserved", at: order.created_at, icon: Package, tone: "text-brand-600 bg-brand-50", done: true },
+  ];
+  if (order.status === "CANCELLED")
+    steps.push({ label: "Order cancelled", at: order.updated_at, icon: Ban, tone: "text-rose-600 bg-rose-50", done: true });
+  else
+    steps.push({ label: "Awaiting fulfillment", at: null, icon: Clock, tone: "text-brand-300 bg-brand-50", done: false });
 
   return (
-    <form onSubmit={submit} className="space-y-4">
-      <Field label="Customer">
-        <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-          <option value="">Select a customer…</option>
-          {(customers.data || []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.full_name} ({c.email})
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <div>
-        <label className="label">Order lines</label>
-        <div className="space-y-2">
-          {lines.map((l, i) => (
-            <div key={i} className="flex gap-2">
-              <select
-                className="input flex-1"
-                value={l.product_id}
-                onChange={(e) => setLine(i, { product_id: e.target.value })}
-              >
-                <option value="">Select product…</option>
-                {(products.data || []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {money(p.price)} ({p.quantity_in_stock} in stock)
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input w-24"
-                type="number"
-                min="1"
-                step="1"
-                value={l.quantity}
-                onChange={(e) => setLine(i, { quantity: e.target.value })}
-              />
-              <button
-                type="button"
-                className="btn-ghost px-3"
-                onClick={() => removeLine(i)}
-                disabled={lines.length === 1}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-        <button type="button" className="btn-ghost mt-2 px-3 py-1" onClick={addLine}>
-          + Add line
-        </button>
-      </div>
-
-      {err && <p className="text-sm text-rose-600">{err}</p>}
-
-      <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-        <span className="text-sm font-medium text-slate-600">Estimated total</span>
-        <span className="text-lg font-bold text-slate-900">{money(total)}</span>
-      </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button type="button" className="btn-ghost" onClick={onClose}>
-          Cancel
-        </button>
-        <button type="submit" className="btn-primary" disabled={createM.isPending}>
-          Place order
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function OrderDetail({ id, onClose }) {
-  const { data, isLoading, isError, error } = useOrder(id);
-  if (isLoading) return <Spinner />;
-  if (isError) return <ErrorState message={errorMessage(error)} />;
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <p className="label">Order ID</p>
-          <p className="font-mono text-slate-700">{shortId(data.id)}</p>
-        </div>
-        <div>
-          <p className="label">Status</p>
-          <span className="badge bg-brand-100 text-brand-700">{data.status}</span>
-        </div>
-        <div>
-          <p className="label">Customer</p>
-          <p className="font-mono text-slate-700">{shortId(data.customer_id)}</p>
-        </div>
-        <div>
-          <p className="label">Placed</p>
-          <p className="text-slate-700">{dateTime(data.created_at)}</p>
-        </div>
-      </div>
-      <div className="overflow-hidden rounded-lg border border-slate-200">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-            <tr>
-              <th className="px-3 py-2">Product</th>
-              <th className="px-3 py-2">Qty</th>
-              <th className="px-3 py-2">Unit</th>
-              <th className="px-3 py-2 text-right">Line total</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {data.lines.map((l) => (
-              <tr key={l.id}>
-                <td className="px-3 py-2 font-mono text-slate-600">{shortId(l.product_id)}</td>
-                <td className="px-3 py-2">{l.quantity}</td>
-                <td className="px-3 py-2">{money(l.unit_price)}</td>
-                <td className="px-3 py-2 text-right">{money(l.line_total)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-3">
-        <span className="text-sm font-medium text-slate-600">Total</span>
-        <span className="text-lg font-bold text-slate-900">{money(data.total_amount)}</span>
-      </div>
-      <div className="flex justify-end">
-        <button className="btn-ghost" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function Orders() {
-  const toast = useToast();
-  const { data, isLoading, isError, error } = useOrders();
-  const deleteM = useDeleteOrder();
-  const [creating, setCreating] = useState(false);
-  const [detailId, setDetailId] = useState(null);
-
-  const remove = async (o) => {
-    if (!confirm("Cancel this order? Stock will be restored.")) return;
-    try {
-      await deleteM.mutateAsync(o.id);
-      toast.success("Order cancelled");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
-          <p className="text-sm text-slate-500">Create and track customer orders.</p>
-        </div>
-        <button className="btn-primary" onClick={() => setCreating(true)}>
-          + New order
-        </button>
-      </div>
-
-      <div className="card">
-        {isLoading ? (
-          <Spinner />
-        ) : isError ? (
-          <div className="p-4">
-            <ErrorState message={errorMessage(error)} />
+    <ol className="relative space-y-4 pl-2">
+      {steps.map((s, i) => (
+        <li key={i} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <span className={`flex h-8 w-8 items-center justify-center rounded-full ${s.tone}`}><s.icon className="h-4 w-4" /></span>
+            {i < steps.length - 1 && <span className={`mt-1 w-0.5 flex-1 ${s.done ? "bg-brand-200" : "bg-brand-100"}`} style={{ minHeight: 18 }} />}
           </div>
-        ) : data.length === 0 ? (
-          <EmptyState title="No orders yet" hint="Create your first order." />
+          <div className="pb-1">
+            <p className={`text-sm font-medium ${s.done ? "text-brand-800" : "text-brand-400"}`}>{s.label}</p>
+            <p className="text-xs text-brand-400">{s.at ? dateTime(s.at) : "Pending"}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function OrderDrawer({ order, customer, productById, onClose, onCancel }) {
+  if (!order) return null;
+  return (
+    <Drawer
+      open={!!order}
+      onClose={onClose}
+      title={`Order ${shortId(order.id)}`}
+      subtitle={dateTime(order.created_at)}
+      badge={<OrderStatusBadge status={order.status} />}
+      footer={
+        order.status === "PLACED" ? (
+          <div className="flex justify-end"><button className="btn-danger" onClick={() => onCancel(order)}><XCircle className="h-4 w-4" /> Cancel order</button></div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Order</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Total</th>
-                  <th className="px-4 py-3">Placed</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.map((o) => (
-                  <tr key={o.id}>
-                    <td className="px-4 py-3 font-mono text-slate-600">{shortId(o.id)}</td>
-                    <td className="px-4 py-3 font-mono text-slate-500">{shortId(o.customer_id)}</td>
-                    <td className="px-4 py-3">
-                      <span className="badge bg-brand-100 text-brand-700">{o.status}</span>
-                    </td>
-                    <td className="px-4 py-3 font-semibold">{money(o.total_amount)}</td>
-                    <td className="px-4 py-3 text-slate-500">{dateTime(o.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <button className="btn-ghost px-3 py-1" onClick={() => setDetailId(o.id)}>
-                          View
-                        </button>
-                        <button className="btn-danger px-3 py-1" onClick={() => remove(o)}>
-                          Cancel
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <p className="text-center text-sm text-brand-400">This order was cancelled and stock was restored.</p>
+        )
+      }
+    >
+      <div className="space-y-5">
+        {customer && (
+          <div className="flex items-center gap-3 rounded-xl border border-brand-100 bg-white p-3">
+            <Avatar name={customer.full_name} />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-brand-800">{customer.full_name}</p>
+              <p className="truncate text-xs text-brand-400">{customer.email}</p>
+            </div>
           </div>
         )}
+
+        <div className="card overflow-hidden">
+          <p className="border-b border-brand-100 px-4 py-3 text-sm font-semibold text-brand-700">Items ({order.lines?.length || 0})</p>
+          <div className="divide-y divide-brand-50">
+            {(order.lines || []).map((l) => {
+              const p = productById[l.product_id];
+              return (
+                <div key={l.id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-400"><Package className="h-4 w-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-brand-800">{p?.name || "Deleted product"}</p>
+                    <p className="tnum text-xs text-brand-400">{l.quantity} × {money(l.unit_price)}</p>
+                  </div>
+                  <span className="tnum text-sm font-semibold text-brand-800">{money(l.line_total)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-center justify-between bg-brand-900 px-4 py-3 text-white">
+            <span className="text-sm">Order total</span>
+            <span className="tnum text-lg font-bold">{money(order.total_amount)}</span>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-3 text-sm font-semibold text-brand-700">Timeline</p>
+          <Timeline order={order} />
+        </div>
+      </div>
+    </Drawer>
+  );
+}
+
+export default function Orders({ onNewOrder }) {
+  const toast = useToast();
+  const { data: orders, isLoading, isError, error, refetch } = useOrders();
+  const deleteM = useDeleteOrder();
+  const { productById, customerById } = useLookups();
+  const [params, setParams] = useSearchParams();
+
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [detail, setDetail] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+
+  useEffect(() => {
+    const focus = params.get("focus");
+    if (focus && orders) {
+      const o = orders.find((x) => x.id === focus);
+      if (o) setDetail(o);
+      params.delete("focus"); setParams(params, { replace: true });
+    }
+  }, [params, orders]); // eslint-disable-line
+
+  const counts = useMemo(() => {
+    const all = orders || [];
+    return { all: all.length, placed: all.filter((o) => o.status === "PLACED").length, cancelled: all.filter((o) => o.status === "CANCELLED").length };
+  }, [orders]);
+
+  const filtered = useMemo(() => {
+    let list = orders || [];
+    const q = query.trim().toLowerCase();
+    if (q) list = list.filter((o) => o.id.toLowerCase().includes(q) || customerById[o.customer_id]?.full_name?.toLowerCase().includes(q));
+    if (filter !== "all") list = list.filter((o) => o.status === (filter === "placed" ? "PLACED" : "CANCELLED"));
+    return list;
+  }, [orders, query, filter, customerById]);
+
+  const doCancel = async () => {
+    try {
+      await deleteM.mutateAsync(confirm.id);
+      toast.success("Order cancelled · stock restored");
+      setDetail(null); setConfirm(null);
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
+
+  const columns = [
+    { key: "id", header: "Order", sortable: true, sortValue: (r) => r.created_at, render: (r) => (
+      <div className="flex items-center gap-3">
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-400"><ShoppingCart className="h-4 w-4" /></span>
+        <div><p className="font-mono text-sm font-medium text-brand-800">{shortId(r.id)}</p><p className="text-xs text-brand-400">{dateShort(r.created_at)}</p></div>
+      </div>
+    ) },
+    { key: "customer", header: "Customer", render: (r) => {
+      const c = customerById[r.customer_id];
+      return c ? (
+        <div className="flex items-center gap-2.5"><Avatar name={c.full_name} size="sm" /><span className="truncate text-sm text-brand-700">{c.full_name}</span></div>
+      ) : <span className="text-sm text-brand-300">Unknown</span>;
+    } },
+    { key: "items", header: "Items", align: "right", render: (r) => <span className="tnum text-brand-600">{num(r.lines?.length || 0)}</span> },
+    { key: "total_amount", header: "Total", align: "right", sortable: true, sortValue: (r) => Number(r.total_amount), render: (r) => <span className="tnum font-semibold text-brand-900">{money(r.total_amount)}</span> },
+    { key: "status", header: "Status", render: (r) => <OrderStatusBadge status={r.status} /> },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+          <SearchInput value={query} onChange={setQuery} placeholder="Search by order id or customer…" className="sm:max-w-xs" />
+          <Segmented
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "All", count: counts.all },
+              { value: "placed", label: "Placed", count: counts.placed },
+              { value: "cancelled", label: "Cancelled", count: counts.cancelled },
+            ]}
+          />
+        </div>
+        <button className="btn-primary" onClick={onNewOrder}><Plus className="h-4 w-4" /> New order</button>
       </div>
 
-      <Modal open={creating} title="New order" onClose={() => setCreating(false)}>
-        <OrderForm onClose={() => setCreating(false)} />
-      </Modal>
-      <Modal open={!!detailId} title="Order details" onClose={() => setDetailId(null)}>
-        {detailId && <OrderDetail id={detailId} onClose={() => setDetailId(null)} />}
-      </Modal>
+      <div className="card overflow-hidden">
+        <DataTable
+          columns={columns}
+          data={filtered}
+          loading={isLoading}
+          error={isError ? errorMessage(error) : null}
+          onRetry={refetch}
+          onRowClick={(r) => setDetail(r)}
+          initialSort={{ key: "id", dir: "desc" }}
+          empty={<EmptyState icon={ShoppingCart} title={query || filter !== "all" ? "No matching orders" : "No orders yet"} hint={query || filter !== "all" ? "Try a different search or filter." : "Create your first order to see it here."} action={!query && filter === "all" && <button className="btn-primary" onClick={onNewOrder}><Plus className="h-4 w-4" /> New order</button>} />}
+        />
+      </div>
+
+      <OrderDrawer order={detail} customer={detail && customerById[detail.customer_id]} productById={productById} onClose={() => setDetail(null)} onCancel={(o) => setConfirm(o)} />
+      <ConfirmDialog
+        open={!!confirm}
+        onClose={() => setConfirm(null)}
+        onConfirm={doCancel}
+        danger
+        busy={deleteM.isPending}
+        title="Cancel this order?"
+        message="The order will be cancelled and all reserved stock will be returned to inventory."
+        confirmLabel="Cancel order"
+      />
     </div>
   );
 }

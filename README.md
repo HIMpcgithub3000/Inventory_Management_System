@@ -4,18 +4,7 @@ A production-minded, fully containerized full-stack system to manage **Products,
 Customers, Orders, and Inventory**. React SPA + Python/FastAPI API + PostgreSQL,
 orchestrated with Docker Compose and deployable to free hosting.
 
-## 🔗 Submission Links
 
-| Artifact | URL |
-|---|---|
-| **GitHub repository** | `<https://github.com/USER/ioms>` |
-| **Docker Hub backend image** | `<https://hub.docker.com/r/USER/ioms-backend>` |
-| **Live frontend** | `<https://ioms.vercel.app>` |
-| **Live backend API** (`/docs`) | `<https://ioms-backend.onrender.com/docs>` |
-
-> Replace the placeholders above once deployed (see **Deployment** below).
-
----
 
 ## Architecture
 
@@ -146,6 +135,25 @@ TEST_DATABASE_URL="postgresql+psycopg://ioms:ioms@127.0.0.1:5432/ioms_test" pyte
 insufficient stock (409), unknown refs (404), invalid bodies (422), all-or-nothing
 rollback, SKU/email reuse after delete, and a **concurrent double-order on the last
 unit** (exactly one 201, one 409).
+
+### End-to-end verification (against a running stack)
+
+```bash
+# API + business rules + concurrency (65 checks) — needs httpx (a backend dep):
+python scripts/e2e_live.py http://localhost:8000
+
+# Quick shell smoke (9 checks):
+bash scripts/smoke.sh http://localhost:8000
+
+# Browser UI flow on desktop + mobile (needs Playwright: npm i playwright && npx playwright install chromium):
+node scripts/ui_e2e.mjs
+```
+
+The full system has been verified end to end: 27 unit tests, 65 live API checks
+(incl. 8 parallel orders for the last unit → exactly one winner, no oversell, and
+Decimal exactness with no float drift), browser UI flows on 1280px and 375px with
+zero console errors, plus infrastructure checks (non-root containers, slim images,
+DB not host-exposed, named-volume persistence across `down`/`up`, idempotent migrations).
 
 ---
 

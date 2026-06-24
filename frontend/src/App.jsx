@@ -1,78 +1,72 @@
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import Sidebar from "./components/Sidebar";
+import Topbar from "./components/Topbar";
+import CommandPalette from "./components/CommandPalette";
+import OrderWizard from "./pages/OrderWizard";
 import Dashboard from "./pages/Dashboard";
 import Products from "./pages/Products";
-import Customers from "./pages/Customers";
+import Inventory from "./pages/Inventory";
 import Orders from "./pages/Orders";
+import Customers from "./pages/Customers";
 
-const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: "▦" },
-  { to: "/products", label: "Products", icon: "▣" },
-  { to: "/customers", label: "Customers", icon: "☻" },
-  { to: "/orders", label: "Orders", icon: "▤" },
-];
+const META = {
+  "/dashboard": { title: "Dashboard", subtitle: "Your operations at a glance" },
+  "/products": { title: "Products", subtitle: "Manage your catalog and pricing" },
+  "/inventory": { title: "Inventory", subtitle: "Monitor stock health across products" },
+  "/orders": { title: "Orders", subtitle: "Track and fulfill customer orders" },
+  "/customers": { title: "Customers", subtitle: "Your customer directory" },
+};
 
 export default function App() {
-  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
-  const NavItems = ({ onClick }) =>
-    nav.map((n) => (
-      <NavLink
-        key={n.to}
-        to={n.to}
-        onClick={onClick}
-        className={({ isActive }) =>
-          `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
-            isActive ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
-          }`
-        }
-      >
-        <span className="text-base">{n.icon}</span>
-        {n.label}
-      </NavLink>
-    ));
+  const meta = META[pathname] || { title: "Stockpilot" };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const newOrder = () => setWizardOpen(true);
 
   return (
-    <div className="min-h-screen lg:flex">
-      {/* Mobile top bar */}
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 lg:hidden">
-        <span className="text-lg font-bold text-brand-700">IOMS</span>
-        <button className="btn-ghost px-3 py-1" onClick={() => setOpen((o) => !o)}>
-          ☰
-        </button>
-      </header>
+    <div className="flex min-h-dvh bg-brand-50">
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} onNewOrder={newOrder} />
 
-      {/* Sidebar */}
-      <aside
-        className={`${open ? "block" : "hidden"} border-b border-slate-200 bg-white p-4 lg:block lg:w-64 lg:shrink-0 lg:border-b-0 lg:border-r`}
-      >
-        <div className="mb-6 hidden items-center gap-2 px-2 lg:flex">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 font-bold text-white">
-            IO
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Topbar
+          title={meta.title}
+          subtitle={meta.subtitle}
+          onMenu={() => setSidebarOpen(true)}
+          onOpenSearch={() => setPaletteOpen(true)}
+        />
+        <main className="flex-1 px-4 py-5 sm:px-6 sm:py-6">
+          <div className="mx-auto max-w-7xl">
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard onNewOrder={newOrder} />} />
+              <Route path="/products" element={<Products />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/orders" element={<Orders onNewOrder={newOrder} />} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
           </div>
-          <div>
-            <p className="text-sm font-bold text-slate-900">IOMS</p>
-            <p className="text-xs text-slate-400">Inventory & Orders</p>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-1">
-          <NavItems onClick={() => setOpen(false)} />
-        </nav>
-      </aside>
+        </main>
+      </div>
 
-      {/* Main content */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-6xl">
-          <Routes>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/products" element={<Products />} />
-            <Route path="/customers" element={<Customers />} />
-            <Route path="/orders" element={<Orders />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </div>
-      </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onNewOrder={newOrder} />
+      <OrderWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
     </div>
   );
 }
