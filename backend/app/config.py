@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # CORS — comma-separated list of allowed origins. Never '*' in production.
     cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000")
 
+    # CORS — optional regex matching allowed origins. Useful for Vercel/Netlify where
+    # every deploy gets a new subdomain, e.g. https://my-app-.*\.vercel\.app
+    cors_origin_regex: str = Field(default="")
+
     # App metadata / behavior
     app_name: str = "IOMS Backend"
     app_version: str = "1.0.0"
