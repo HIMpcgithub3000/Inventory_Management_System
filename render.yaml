@@ -23,10 +23,14 @@ services:
         fromDatabase:
           name: ioms-db
           property: connectionString
-      # Comma-separated allowed frontend origins. Set this to your live frontend URL
-      # in the dashboard (left as sync:false so you fill it in once the frontend exists).
+      # Comma-separated exact origins (local dev + any fixed prod URLs).
       - key: CORS_ORIGINS
-        sync: false
+        value: "http://localhost:5173,http://localhost:3000"
+      # Regex matching ALL Vercel URLs for this project (production + every preview
+      # deploy, which each get a new subdomain). This is why CORS keeps working
+      # across redeploys without touching anything.
+      - key: CORS_ORIGIN_REGEX
+        value: 'https://inventory-management-system.*\.vercel\.app'
       - key: ENVIRONMENT
         value: production
       - key: LOG_LEVEL
