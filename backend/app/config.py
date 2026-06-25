@@ -6,7 +6,7 @@ supplied via environment variables (.env locally, platform secret manager in pro
 """
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +18,20 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://ioms:ioms@localhost:5432/ioms",
         description="SQLAlchemy URL, e.g. postgresql+psycopg://user:pass@host:5432/db",
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def _ensure_psycopg_driver(cls, v: str) -> str:
+        """Managed Postgres (Render/Heroku) hands out a `postgresql://` (or legacy
+        `postgres://`) URL, but this app uses psycopg3 and needs the explicit
+        `postgresql+psycopg://` driver. Normalize so DATABASE_URL can be pasted as-is."""
+        if v.startswith("postgresql+"):
+            return v
+        if v.startswith("postgresql://"):
+            return "postgresql+psycopg://" + v[len("postgresql://"):]
+        if v.startswith("postgres://"):
+            return "postgresql+psycopg://" + v[len("postgres://"):]
+        return v
 
     # CORS — comma-separated list of allowed origins. Never '*' in production.
     cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000")

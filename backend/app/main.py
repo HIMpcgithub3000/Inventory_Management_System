@@ -37,6 +37,8 @@ app = FastAPI(
 )
 
 # CORS locked to known origins (FM-09 / §8.2). Never '*' in production.
+# Origins come from the CORS_ORIGINS env var (comma-separated) so deploys can add
+# their frontend URL without a code change. See app/config.py.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
